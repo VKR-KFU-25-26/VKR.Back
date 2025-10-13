@@ -1,0 +1,12 @@
+C:\VKR.Back\CourtParser\CourtParser.Models\bin\Debug\net8.0\CourtParser.Models.deps.json
+C:\VKR.Back\CourtParser\CourtParser.Models\bin\Debug\net8.0\CourtParser.Models.dll
+C:\VKR.Back\CourtParser\CourtParser.Models\bin\Debug\net8.0\CourtParser.Models.pdb
+C:\VKR.Back\CourtParser\CourtParser.Models\obj\Debug\net8.0\CourtParser.Models.GeneratedMSBuildEditorConfig.editorconfig
+C:\VKR.Back\CourtParser\CourtParser.Models\obj\Debug\net8.0\CourtParser.Models.AssemblyInfoInputs.cache
+C:\VKR.Back\CourtParser\CourtParser.Models\obj\Debug\net8.0\CourtParser.Models.AssemblyInfo.cs
+C:\VKR.Back\CourtParser\CourtParser.Models\obj\Debug\net8.0\CourtParser.Models.csproj.CoreCompileInputs.cache
+C:\VKR.Back\CourtParser\CourtParser.Models\obj\Debug\net8.0\CourtParser.Models.sourcelink.json
+C:\VKR.Back\CourtParser\CourtParser.Models\obj\Debug\net8.0\CourtParser.Models.dll
+C:\VKR.Back\CourtParser\CourtParser.Models\obj\Debug\net8.0\refint\CourtParser.Models.dll
+C:\VKR.Back\CourtParser\CourtParser.Models\obj\Debug\net8.0\CourtParser.Models.pdb
+C:\VKR.Back\CourtParser\CourtParser.Models\obj\Debug\net8.0\ref\CourtParser.Models.dll
