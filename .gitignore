@@ -1,6 +1,87 @@
-bin/
-obj/
-Debug/
-Release/
-*.dll
-*.exe
+# Общие системные файлы
+Thumbs.db
+.DS_Store
+*.lnk
+
+# Файлы IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Файлы сборки
+[Bb]in/
+[Oo]bj/
+out/
+build/
+
+# Файлы отладки и релиза
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+
+# Файлы пакетов
+packages/
+**/[Pp]ackages/*/
+*.nupkg
+**/packages/build/
+
+# Файлы пользователей
+*.user
+*.userosscache
+*.sln.docstates
+
+# Файлы кэша
+_ReSharper.Cache/
+
+# Файлы тестов
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# Файлы резервных копий
+*.bak
+*.tmp
+*.cache
+
+# Файлы баз данных
+*.mdf
+*.ldf
+*.sdf
+
+# Файлы развертывания
+*.ps1
+*.cmd
+*.bat
+
+# Файлы логов
+*.log
+logs/
+
+# Файлы конфигурации (кроме основных)
+appsettings.*.json
+appsettings.*.yaml
+!appsettings.json
+
+# Файлы среды
+.env
+.env.local
+.env.*.local
+
+# Файлы покрытия кода
+coverage.xml
+coverage.json
+*.coverage
+*.coveragexml
+
+# Файлы Docker
+.dockerignore
+
+# Файлы миграций (если не нужны в репозитории)
+Migrations/
