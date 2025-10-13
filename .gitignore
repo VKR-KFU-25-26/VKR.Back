@@ -83,5 +83,4 @@ coverage.json
 # Файлы Docker
 .dockerignore
 
-# Файлы миграций (если не нужны в репозитории)
-Migrations/
+
