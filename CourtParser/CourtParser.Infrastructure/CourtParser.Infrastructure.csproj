@@ -23,8 +23,4 @@
       <ProjectReference Include="..\CourtParser.Core\CourtParser.Core.csproj" />
     </ItemGroup>
 
-    <ItemGroup>
-      <Folder Include="Helpers\" />
-    </ItemGroup>
-
 </Project>

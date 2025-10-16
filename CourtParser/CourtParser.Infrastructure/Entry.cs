@@ -5,6 +5,7 @@ using CourtParser.Core.Interfaces;
 using CourtParser.Infrastructure.Options;
 using CourtParser.Infrastructure.Parsers;
 using CourtParser.Infrastructure.Producers;
+using CourtParser.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -29,7 +30,10 @@ public static class Entry
         
         services.AddSingleton(resolver => 
             resolver.GetRequiredService<IOptions<HttpClientOptions>>().Value);
-        
+        services.AddScoped<RegionSelectionService>();
+        services.AddScoped<SearchResultsParserService>();
+        services.AddScoped<DecisionExtractionService>();
+        services.AddScoped<PageNavigationService>(); 
         services.AddScoped<IParser, SudactParser>();
         services.AddScoped<IParser, CourtDecisionsParser>();
         

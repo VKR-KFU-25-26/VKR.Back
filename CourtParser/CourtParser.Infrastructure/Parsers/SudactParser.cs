@@ -144,7 +144,12 @@ public class SudactParser : IParser
             return new List<CourtCase>();
         }
    }
-   
+
+   public Task<List<CourtCase>> ParseCasesAsync(List<string> regions, int page)
+   {
+       throw new NotImplementedException();
+   }
+
    // Новый метод для извлечения номера дела из заголовка
     private string ExtractCaseNumber(string title)
     {
