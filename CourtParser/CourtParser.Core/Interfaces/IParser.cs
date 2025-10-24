@@ -12,12 +12,5 @@ public interface IParser
     /// </summary>
     Task<List<CourtCase>> ParseCasesAsync(string keyword, int page = 1);
     
-    Task<List<CourtCase>> ParseCasesAsync(List<string> regions, int page); // Добавь этот метод
-
-    
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <returns></returns>
-    Task<List<CourtCase>> ParseCasesAsync(int page);
+    Task<List<CourtCase>> ParseCasesAsync(List<string> regions, int page); 
 }

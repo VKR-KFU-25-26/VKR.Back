@@ -13,40 +13,45 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         {
             logger.LogInformation("Проверяем наличие решения для дела: {CaseNumber}", courtCase.CaseNumber);
         
-            var navigationTask = page.WaitForNavigationAsync(new NavigationOptions
-            {
-                WaitUntil = [WaitUntilNavigation.Networkidle2],
-                Timeout = 30000
-            });
+            // Сбрасываем флаг решения перед проверкой
+            courtCase.HasDecision = false;
+            courtCase.DecisionLink = string.Empty;
+            courtCase.DecisionType = "Не найдено";
+            courtCase.DecisionContent = string.Empty;
+            courtCase.DecisionDate = null;
         
+            // Ждем загрузки страницы
             await page.GoToAsync(courtCase.Link, WaitUntilNavigation.Networkidle2);
-            await navigationTask;
             await Task.Delay(2000, cancellationToken);
 
             // 1. Сначала извлекаем детальную информацию о деле
             await ExtractDetailedCaseInfo(page, courtCase);
         
-            // 2. Проверяем наличие встроенного решения в HTML
+            // 2. Извлекаем оригинальную ссылку на сайт суда
+            await ExtractOriginalCaseLinkAsync(page, courtCase);
+        
+            // 3. ПРИОРИТЕТ: Проверяем наличие ссылок на файлы решений
+            bool fileDecisionFound = await CheckFileDecisionLinks(page, courtCase);
+            
+            if (fileDecisionFound)
+            {
+                logger.LogInformation("✅ Найдено файловое решение для дела {CaseNumber}", courtCase.CaseNumber);
+                return;
+            }
+
+            // 4. Если файлового решения нет, проверяем встроенное HTML-решение
             bool embeddedDecisionFound = await ExtractEmbeddedDecisionAsync(page, courtCase);
             
-            // 3. Если встроенного решения нет, ищем ссылки на отдельные документы
-            if (!embeddedDecisionFound)
+            if (embeddedDecisionFound)
             {
-                bool externalDecisionFound = await ExtractDecisionFromMainBlock(page, courtCase);
-                
-                if (!externalDecisionFound)
-                {
-                    externalDecisionFound = await FindDecisionLinksAlternativeAsync(page, courtCase);
-                }
+                logger.LogInformation("✅ Найдено встроенное решение для дела {CaseNumber}", courtCase.CaseNumber);
+                return;
             }
-            
-            if (!embeddedDecisionFound && !courtCase.HasDecision)
-            {
-                courtCase.HasDecision = false;
-                courtCase.DecisionLink = string.Empty;
-                courtCase.DecisionType = "Не найдено";
-                logger.LogInformation("❌ Для дела {CaseNumber} решение не найдено", courtCase.CaseNumber);
-            }
+
+            // 5. Если ничего не найдено
+            logger.LogInformation("❌ Для дела {CaseNumber} решение не найдено", courtCase.CaseNumber);
+            courtCase.HasDecision = false;
+            courtCase.DecisionType = "Не найдено";
         }
         catch (Exception ex)
         {
@@ -57,10 +62,9 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         }
     }
    
-   
-   
+
     /// <summary>
-    /// Извлекает встроенное решение прямо из HTML страницы
+    /// Извлекает встроенное решение прямо из HTML страницы - УЛУЧШЕННАЯ ВЕРСИЯ
     /// </summary>
     private async Task<bool> ExtractEmbeddedDecisionAsync(IPage page, CourtCase courtCase)
     {
@@ -68,60 +72,27 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         {
             logger.LogInformation("Ищем встроенное решение в HTML для дела {CaseNumber}", courtCase.CaseNumber);
 
-            // 1. Ищем блоки с решениями/определениями по различным селекторам
-            var possibleDecisionContainers = new[]
+            var pageContent = await page.GetContentAsync();
+            
+            // СПЕЦИАЛЬНАЯ ПРОВЕРКА: Ищем блоки MsoNormal с выравниванием по ширине
+            bool hasMsoNormalStructure = await CheckMsoNormalStructure(page, courtCase);
+            if (hasMsoNormalStructure)
             {
-                ".col-md-12", // из вашего примера
-                ".decision-content",
-                ".court-decision", 
-                ".document-content",
-                "blockquote[itemprop='text']",
-                ".document-text",
-                "#decisionText",
-                ".judicial-act"
-            };
-
-            foreach (var selector in possibleDecisionContainers)
-            {
-                var container = await page.QuerySelectorAsync(selector);
-                if (container != null)
-                {
-                    var containerText = await container.EvaluateFunctionAsync<string>("el => el.textContent");
-                    if (!string.IsNullOrEmpty(containerText) && IsJudicialDocument(containerText))
-                    {
-                        logger.LogInformation("Найден контейнер с судебным документом: {Selector}", selector);
-                        
-                        var documentType = DetermineDocumentTypeFromContent(containerText);
-                        var documentContent = await ExtractStructuredDecisionContent(container, containerText);
-                        
-                        courtCase.HasDecision = true;
-                        courtCase.DecisionLink = courtCase.Link + "#embedded_decision"; // маркер встроенного документа
-                        courtCase.DecisionType = documentType;
-                        courtCase.DecisionContent = documentContent; // новое поле для хранения содержимого
-                        courtCase.DecisionDate = ExtractDateFromDecisionContent(containerText);
-                        
-                        logger.LogInformation("✅ Найдено встроенное {DocumentType} для дела {CaseNumber}", 
-                            documentType, courtCase.CaseNumber);
-                        
-                        return true;
-                    }
-                }
+                logger.LogInformation("✅ Найдена структура MsoNormal для дела {CaseNumber}", courtCase.CaseNumber);
+                return true;
             }
 
-            // 2. Альтернативный поиск по текстовому содержанию
-            var pageContent = await page.GetContentAsync();
-            if (IsJudicialDocument(pageContent))
+            // Стандартная проверка структуры решения
+            bool hasStandardStructure = await CheckStandardDecisionStructure(page, courtCase);
+            if (hasStandardStructure)
             {
-                var documentType = DetermineDocumentTypeFromContent(pageContent);
-                courtCase.HasDecision = true;
-                courtCase.DecisionLink = courtCase.Link;
-                courtCase.DecisionType = documentType;
-                courtCase.DecisionContent = CleanText(pageContent);
-                courtCase.DecisionDate = ExtractDateFromDecisionContent(pageContent);
-                
-                logger.LogInformation("✅ Найдено встроенное {DocumentType} в теле страницы для дела {CaseNumber}", 
-                    documentType, courtCase.CaseNumber);
-                
+                return true;
+            }
+
+            // Проверка по содержимому страницы
+            bool hasDecisionContent = await CheckDecisionByContent(page, pageContent, courtCase);
+            if (hasDecisionContent)
+            {
                 return true;
             }
 
@@ -133,117 +104,405 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             return false;
         }
     }
-
+    
     /// <summary>
-    /// Определяет, является ли текст судебным документом
+    /// СПЕЦИАЛЬНАЯ ПРОВЕРКА: Ищем блоки MsoNormal с выравниванием по ширине
     /// </summary>
-    private bool IsJudicialDocument(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-
-        var cleanText = text.ToLower();
-        
-        // Ключевые слова, характерные для судебных документов
-        var judicialKeywords = new[]
-        {
-            "определение",
-            "решение",
-            "постановление", 
-            "приказ",
-            "суд ",
-            "исковое заявление",
-            "дело №",
-            "председательствующий",
-            "судья",
-            "рассмотрев",
-            "установил",
-            "определил",
-            "постановил"
-        };
-
-        return judicialKeywords.Any(keyword => cleanText.Contains(keyword));
-    }
-
-    /// <summary>
-    /// Определяет тип документа на основе содержимого
-    /// </summary>
-    private string DetermineDocumentTypeFromContent(string content)
-    {
-        var cleanContent = content.ToLower();
-        
-        if (cleanContent.Contains("определение") && cleanContent.Contains("об оставлении искового заявления без рассмотрения"))
-            return "Определение об оставлении искового заявления без рассмотрения";
-        else if (cleanContent.Contains("определение") && cleanContent.Contains("о прекращении"))
-            return "Определение о прекращении производства по делу";
-        else if (cleanContent.Contains("определение"))
-            return "Определение";
-        else if (cleanContent.Contains("решение") && cleanContent.Contains("мотивированное"))
-            return "Мотивированное решение";
-        else if (cleanContent.Contains("решение"))
-            return "Решение";
-        else if (cleanContent.Contains("постановление"))
-            return "Постановление";
-        else if (cleanContent.Contains("приказ"))
-            return "Судебный приказ";
-        else
-            return "Судебный документ";
-    }
-
-    /// <summary>
-    /// Извлекает структурированное содержимое решения
-    /// </summary>
-    private async Task<string> ExtractStructuredDecisionContent(IElementHandle container, string containerText)
+    private async Task<bool> CheckMsoNormalStructure(IPage page, CourtCase courtCase)
     {
         try
         {
-            // Пытаемся извлечь структурированные данные
-            var structuredData = new Dictionary<string, string>();
+            // Ищем все параграфы с классом MsoNormal и выравниванием по ширине
+            var msoNormalElements = await page.QuerySelectorAllAsync(
+                "p.MsoNormal[style*='TEXT-ALIGN: justify'], " +
+                "p.MsoNormal[style*='text-align: justify'], " +
+                "p[class*='MsoNormal'][style*='justify']"
+            );
+
+            logger.LogInformation("Найдено элементов MsoNormal с выравниванием: {Count}", msoNormalElements.Length);
+
+            if (msoNormalElements.Length < 5) // Должно быть достаточно много таких параграфов
+            {
+                logger.LogInformation("Недостаточно элементов MsoNormal для признания решения: {Count}", msoNormalElements.Length);
+                return false;
+            }
+
+            // Извлекаем текст из всех найденных элементов
+            var decisionTextParts = new List<string>();
+            foreach (var element in msoNormalElements.Take(20)) // Берем первые 20 элементов
+            {
+                var text = await element.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                if (!string.IsNullOrEmpty(text) && text.Length > 10) // Отсекаем короткие фрагменты
+                {
+                    decisionTextParts.Add(text);
+                }
+            }
+
+            if (decisionTextParts.Count < 3)
+            {
+                logger.LogInformation("Недостаточно текстового контента в MsoNormal элементах");
+                return false;
+            }
+
+            var fullText = string.Join(" ", decisionTextParts);
             
-            // Извлекаем заголовок
-            var titleElement = await container.QuerySelectorAsync("h3, h4, .text-center");
-            if (titleElement != null)
+            // ВАЛИДАЦИЯ: проверяем, что это действительно судебное решение
+            if (!IsValidDecisionContent(fullText))
             {
-                structuredData["Заголовок"] = await titleElement.EvaluateFunctionAsync<string>("el => el.textContent");
+                logger.LogInformation("Текст из MsoNormal не прошел валидацию как судебное решение");
+                return false;
             }
 
-            // Извлекаем дату
-            var dateMatch = Regex.Match(containerText, @"\d{1,2}\s+[а-я]+\s+\d{4}\s+года", RegexOptions.IgnoreCase);
-            if (dateMatch.Success)
+            // Определяем тип документа
+            var documentType = DetermineDocumentTypeFromContent(fullText);
+            if (string.IsNullOrEmpty(documentType))
             {
-                structuredData["Дата"] = dateMatch.Value;
+                logger.LogInformation("Не удалось определить тип документа из MsoNormal контента");
+                return false;
             }
 
-            // Извлекаем номер дела
-            var caseNumberMatch = Regex.Match(containerText, @"дело\s*№?\s*[^\s,]+", RegexOptions.IgnoreCase);
-            if (caseNumberMatch.Success)
-            {
-                structuredData["Номер дела"] = caseNumberMatch.Value;
-            }
+            // УСПЕХ: решение найдено
+            courtCase.HasDecision = true;
+            courtCase.DecisionLink = courtCase.Link + "#embedded_decision";
+            courtCase.DecisionType = documentType;
+            courtCase.DecisionContent = fullText;
+            courtCase.DecisionDate = ExtractDateFromDecisionContent(fullText);
 
-            // Извлекаем суд
-            var courtMatch = Regex.Match(containerText, @"[А-Я][а-я]+\s+[А-Я][а-я]+\s+суд", RegexOptions.IgnoreCase);
-            if (courtMatch.Success)
-            {
-                structuredData["Суд"] = courtMatch.Value;
-            }
-
-            // Формируем структурированный текст
-            var structuredContent = string.Join("\n", 
-                structuredData.Select(x => $"{x.Key}: {CleanText(x.Value)}"));
-            
-            // Добавляем полный текст
-            structuredContent += $"\n\nПолный текст:\n{CleanText(containerText)}";
-            
-            return structuredContent;
+            logger.LogInformation("✅ Найдено валидное решение в MsoNormal структуре: {Type}", documentType);
+            return true;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Ошибка при структурировании содержимого решения");
-            return CleanText(containerText);
+            logger.LogWarning(ex, "Ошибка при проверке MsoNormal структуры");
+            return false;
         }
     }
 
+    
+    /// <summary>
+    /// Проверяет стандартную структуру решения (h3 + blockquote)
+    /// </summary>
+    private async Task<bool> CheckStandardDecisionStructure(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            var pageContent = await page.GetContentAsync();
+            
+            bool hasSolutionStructure = 
+                pageContent.Contains("<h3 class=\"text-center\">") && 
+                pageContent.Contains("<blockquote itemprop=\"text\">");
+
+            if (!hasSolutionStructure)
+            {
+                return false;
+            }
+
+            // Извлекаем заголовок
+            var headerMatch = Regex.Match(
+                pageContent, 
+                @"<h3 class=""text-center"">([^<]*)</h3>"
+            );
+            
+            if (!headerMatch.Success)
+            {
+                return false;
+            }
+
+            // Извлекаем текст решения из blockquote
+            var blockquoteMatch = Regex.Match(
+                pageContent,
+                @"<blockquote itemprop=""text"">(.*?)</blockquote>",
+                RegexOptions.Singleline
+            );
+            
+            if (!blockquoteMatch.Success)
+            {
+                return false;
+            }
+
+            var decisionText = CleanText(blockquoteMatch.Groups[1].Value);
+            
+            if (!IsValidDecisionContent(decisionText))
+            {
+                return false;
+            }
+
+            var documentType = DetermineDocumentTypeFromContent(decisionText);
+            if (string.IsNullOrEmpty(documentType))
+            {
+                return false;
+            }
+
+            courtCase.HasDecision = true;
+            courtCase.DecisionLink = courtCase.Link + "#embedded_decision";
+            courtCase.DecisionType = documentType;
+            courtCase.DecisionContent = decisionText;
+            courtCase.DecisionDate = ExtractDateFromDecisionContent(decisionText);
+            
+            logger.LogInformation("✅ Найдено решение в стандартной структуре: {Type}", documentType);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при проверке стандартной структуры");
+            return false;
+        }
+    }
+     
+     
+    /// <summary>
+    /// ВАЛИДАЦИЯ содержимого решения - УЛУЧШЕННАЯ ВЕРСИЯ
+    /// </summary>
+    private bool IsValidDecisionContent(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return false;
+
+        var cleanContent = content.ToLower();
+
+        // ОБЯЗАТЕЛЬНЫЕ элементы судебного решения
+        var requiredElements = new[]
+        {
+            "именем российской федерации",
+            "решил:",
+            "решила:",
+            "определил:",
+            "определила:",
+            "постановил:",
+            "постановила:",
+            "установил:",
+            "установила:"
+        };
+
+        // ДОПОЛНИТЕЛЬНЫЕ признаки (нужно минимум 3)
+        var additionalElements = new[]
+        {
+            "суд",
+            "судья",
+            "рассмотрев",
+            "заявление",
+            "иск",
+            "дело №",
+            "председательствующий",
+            "решение",
+            "определение",
+            "постановление",
+            "удовлетворить",
+            "отказать",
+            "истец",
+            "ответчик"
+        };
+
+        // Должен содержать хотя бы один ОБЯЗАТЕЛЬНЫЙ элемент
+        bool hasRequired = requiredElements.Any(element => cleanContent.Contains(element));
+        
+        // И хотя бы три ДОПОЛНИТЕЛЬНЫХ элемента
+        int additionalCount = additionalElements.Count(element => cleanContent.Contains(element));
+
+        bool isValid = hasRequired && additionalCount >= 3;
+
+        logger.LogDebug("Валидация контента: Required={HasRequired}, Additional={AdditionalCount}, Valid={IsValid}", 
+            hasRequired, additionalCount, isValid);
+
+        return isValid;
+    }
+     
+
+    /// <summary>
+    /// Проверяет решение по содержимому всей страницы
+    /// </summary>
+    private async Task<bool> CheckDecisionByContent(IPage page, string pageContent, CourtCase courtCase)
+    {
+        try
+        {
+            // Ищем явные признаки решения в тексте
+            var cleanContent = pageContent.ToLower();
+            
+            bool hasStrongIndicators = 
+                cleanContent.Contains("р е ш е н и е") ||
+                cleanContent.Contains("о п р е д е л е н и е") ||
+                cleanContent.Contains("именем российской федерации");
+
+            if (!hasStrongIndicators)
+            {
+                return false;
+            }
+
+            // Извлекаем основной текст страницы
+            var bodyText = await page.EvaluateFunctionAsync<string>(@"
+                () => {
+                    // Убираем скрипты, стили, навигацию
+                    const scripts = document.querySelectorAll('script, style, nav, header, footer');
+                    scripts.forEach(el => el.remove());
+                    
+                    return document.body.innerText;
+                }
+            ");
+
+            if (!IsValidDecisionContent(bodyText))
+            {
+                return false;
+            }
+
+            var documentType = DetermineDocumentTypeFromContent(bodyText);
+            if (string.IsNullOrEmpty(documentType))
+            {
+                return false;
+            }
+
+            courtCase.HasDecision = true;
+            courtCase.DecisionLink = courtCase.Link + "#embedded_decision";
+            courtCase.DecisionType = documentType;
+            courtCase.DecisionContent = CleanText(bodyText);
+            courtCase.DecisionDate = ExtractDateFromDecisionContent(bodyText);
+            
+            logger.LogInformation("✅ Найдено решение по содержимому страницы: {Type}", documentType);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при проверке по содержимому страницы");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Проверяет ссылки на файлы решений
+    /// </summary>
+    private async Task<bool> CheckFileDecisionLinks(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Ищем ссылки на файлы решений для дела {CaseNumber}", courtCase.CaseNumber);
+
+            // Ищем блок с кнопками для скачивания
+            var btnGroup = await page.QuerySelectorAsync(".btn-group1");
+            if (btnGroup == null)
+            {
+                logger.LogInformation("Блок .btn-group1 не найден для дела {CaseNumber}", courtCase.CaseNumber);
+                return false;
+            }
+
+            var decisionLinks = await btnGroup.QuerySelectorAllAsync("a");
+            logger.LogInformation("Найдено ссылок в блоке решений: {Count}", decisionLinks.Length);
+        
+            foreach (var link in decisionLinks)
+            {
+                var href = await link.EvaluateFunctionAsync<string>("el => el.getAttribute('href')");
+                var text = await link.EvaluateFunctionAsync<string>("el => el.textContent");
+            
+                if (!string.IsNullOrEmpty(href) && IsValidDecisionFileLink(href, text))
+                {
+                    var fullLink = href.StartsWith("/") 
+                        ? "https://www.xn--90afdbaav0bd1afy6eub5d.xn--p1ai" + href 
+                        : href;
+                
+                    courtCase.HasDecision = true;
+                    courtCase.DecisionLink = fullLink;
+                    courtCase.DecisionType = DetermineDocumentTypeFromLink(text);
+                
+                    logger.LogInformation("✅ Найдена ссылка на файл решения для дела {CaseNumber}: {Type}", 
+                        courtCase.CaseNumber, courtCase.DecisionType);
+                
+                    return true;
+                }
+            }
+        
+            return false;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при проверке ссылок на файлы решений для дела {CaseNumber}", courtCase.CaseNumber);
+            return false;
+        }
+    }
+  
+    /// <summary>
+    /// Строгая проверка валидности ссылки на файл решения
+    /// </summary>
+    private bool IsValidDecisionFileLink(string href, string linkText)
+    {
+        if (string.IsNullOrEmpty(href)) 
+            return false;
+    
+        // Проверяем расширения файлов
+        bool hasValidExtension = href.EndsWith(".doc") || 
+                                 href.EndsWith(".docx") || 
+                                 href.EndsWith(".pdf") ||
+                                 href.EndsWith(".rtf");
+
+        // Проверяем путь
+        bool hasValidPath = href.Contains("/decisions/");
+
+        // Проверяем текст ссылки
+        var cleanText = (linkText ?? "").ToLower();
+        bool hasValidText = cleanText.Contains("решение") ||
+                            cleanText.Contains("определение") ||
+                            cleanText.Contains("постановление") ||
+                            cleanText.Contains("приказ") ||
+                            cleanText.Contains("мотивированное");
+
+        // Должны совпасть ВСЕ критерии
+        return hasValidExtension && hasValidPath && hasValidText;
+    }
+    
+    /// <summary>
+    /// Определяет тип документа из текста ссылки
+    /// </summary>
+    private string DetermineDocumentTypeFromLink(string linkText)
+    {
+        if (string.IsNullOrEmpty(linkText)) 
+            return "Документ";
+    
+        var text = linkText.ToLower();
+    
+        if (text.Contains("мотивированное решение")) return "Мотивированное решение";
+        if (text.Contains("решение")) return "Решение";
+        if (text.Contains("определение")) return "Определение";
+        if (text.Contains("постановление")) return "Постановление";
+        if (text.Contains("приказ")) return "Судебный приказ";
+        return "Документ";
+    }
+    
+    /// <summary>
+    /// Определяет тип документа из содержимого - УЛУЧШЕННАЯ ВЕРСИЯ
+    /// </summary>
+    private string DetermineDocumentTypeFromContent(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return null!;
+
+        var cleanContent = content.ToLower();
+
+        // ТОЧНЫЕ СОВПАДЕНИЯ с форматированием
+        if (cleanContent.Contains("р е ш е н и е") || 
+            (cleanContent.Contains("решение") && cleanContent.Contains("именем российской федерации")))
+            return "Решение";
+        else if (cleanContent.Contains("о п р е д е л е н и е") || 
+                 (cleanContent.Contains("определение") && cleanContent.Contains("именем российской федерации")))
+            return "Определение";
+        else if (cleanContent.Contains("п о с т а н о в л е н и е") || 
+                 (cleanContent.Contains("постановление") && cleanContent.Contains("именем российской федерации")))
+            return "Постановление";
+        else if (cleanContent.Contains("приказ") && cleanContent.Contains("именем российской федерации"))
+            return "Судебный приказ";
+        else if (cleanContent.Contains("мотивированное решение"))
+            return "Мотивированное решение";
+        
+        // Проверяем по ключевым словам в тексте
+        else if (cleanContent.Contains("решил:") || cleanContent.Contains("решила:"))
+            return "Решение";
+        else if (cleanContent.Contains("определил:") || cleanContent.Contains("определила:"))
+            return "Определение";
+        else if (cleanContent.Contains("постановил:") || cleanContent.Contains("постановила:"))
+            return "Постановление";
+        else if (cleanContent.Contains("именем российской федерации"))
+            return "Судебный акт";
+        else
+            return null!; // Неизвестный тип - считаем что решения нет
+    }
+   
+  
     /// <summary>
     /// Извлекает дату из содержимого решения
     /// </summary>
@@ -251,7 +510,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     {
         try
         {
-            // Паттерны для дат в судебных документах
             var datePatterns = new[]
             {
                 @"\d{1,2}\s+[а-я]+\s+\d{4}\s+года",
@@ -265,11 +523,10 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 if (match.Success)
                 {
                     var dateStr = match.Value;
-                    // Пробуем разные форматы парсинга
                     if (DateTime.TryParse(dateStr, out var date))
                         return date;
                 }
-            }
+            } 
 
             return null;
         }
@@ -278,11 +535,6 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             return null;
         }
     }
-   
-   
-   
-   
-   
    
    
    
@@ -369,27 +621,75 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             logger.LogWarning(ex, "Ошибка при извлечении информации заголовка для дела {CaseNumber}", courtCase.CaseNumber);
         }
     }
+    
+    /// <summary>
+    /// Извлекает ссылку на оригинальный сайт суда
+    /// </summary>
+    private async Task ExtractOriginalCaseLinkAsync(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Ищем ссылку на оригинальный сайт суда для дела {CaseNumber}", courtCase.CaseNumber);
+
+            // 1. Ищем кнопку для показа ссылки
+            var showLinkButton = await page.QuerySelectorAsync("#show-original-link");
+            if (showLinkButton == null)
+            {
+                logger.LogInformation("Кнопка показа оригинальной ссылки не найдена для дела {CaseNumber}", courtCase.CaseNumber);
+                return;
+            }
+
+            // 2. Кликаем на кнопку чтобы показать ссылку
+            await showLinkButton.ClickAsync();
+            await Task.Delay(2000); // Ждем появления ссылки
+
+            // 3. Ищем появившуюся ссылку
+            var originalLinkContainer = await page.QuerySelectorAsync("#original-link");
+            if (originalLinkContainer != null)
+            {
+                var linkElement = await originalLinkContainer.QuerySelectorAsync("a[target='_blank']");
+                if (linkElement != null)
+                {
+                    var originalLink = await linkElement.EvaluateFunctionAsync<string>("el => el.getAttribute('href')");
+                    if (!string.IsNullOrEmpty(originalLink))
+                    {
+                        courtCase.OriginalCaseLink = originalLink;
+                        logger.LogInformation("✅ Найдена оригинальная ссылка для дела {CaseNumber}: {Link}", 
+                            courtCase.CaseNumber, originalLink);
+                        return;
+                    }
+                }
+            }
+
+            logger.LogInformation("Оригинальная ссылка не найдена после нажатия кнопки для дела {CaseNumber}", courtCase.CaseNumber);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении оригинальной ссылки для дела {CaseNumber}", courtCase.CaseNumber);
+        }
+    }
 
     private async Task ExtractPartiesInfo(IPage page, CourtCase courtCase)
     {
         try
         {
-            // Ищем таблицу с участниками процесса
-            var partiesTables = await page.QuerySelectorAllAsync("table.table-condensed");
-            
-            foreach (var table in partiesTables)
+            // Ищем ВСЕ таблицы с классом table-condensed
+            var tables = await page.QuerySelectorAllAsync("table.table-condensed");
+        
+            foreach (var table in tables)
             {
-                var tableText = await table.EvaluateFunctionAsync<string>("el => el.textContent");
-                if (tableText.Contains("Стороны по делу") || tableText.Contains("Вид лица"))
+                // Проверяем есть ли в таблице нужные заголовки
+                var tableHtml = await table.EvaluateFunctionAsync<string>("el => el.outerHTML");
+                if (tableHtml.Contains("ИСТЕЦ") || tableHtml.Contains("ОТВЕТЧИК") || tableHtml.Contains("ТРЕТЬЕ") || tableHtml.Contains("ПРЕДСТАВИТЕЛЬ"))
                 {
                     await ExtractPartiesFromTable(table, courtCase);
-                    break;
+                    return; // Нашли - выходим
                 }
             }
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Ошибка при извлечении информации о сторонах для дела {CaseNumber}", courtCase.CaseNumber);
+            logger.LogWarning(ex, "Ошибка при поиске таблицы сторон");
         }
     }
 
@@ -398,62 +698,60 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         try
         {
             var rows = await table.QuerySelectorAllAsync("tr");
-            var plaintiff = new List<string>();
-            var defendant = new List<string>();
+            var plaintiffs = new List<string>();
+            var defendants = new List<string>();
             var thirdParties = new List<string>();
+            var representatives = new List<string>();
 
             foreach (var row in rows)
             {
                 var cells = await row.QuerySelectorAllAsync("td");
                 if (cells.Length >= 2)
                 {
-                    var partyType = await cells[0].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
-                    var partyName = await cells[1].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                    var partyType = await cells[0].EvaluateFunctionAsync<string>("el => el.textContent");
+                    var partyName = await cells[1].EvaluateFunctionAsync<string>("el => el.textContent");
 
                     if (!string.IsNullOrEmpty(partyType) && !string.IsNullOrEmpty(partyName))
                     {
-                        switch (partyType.ToUpper())
-                        {
-                            case "ИСТЕЦ":
-                                plaintiff.Add(partyName);
-                                break;
-                            case "ОТВЕТЧИК":
-                                defendant.Add(partyName);
-                                break;
-                            case "ТРЕТЬЕ ЛИЦО":
-                                thirdParties.Add(partyName);
-                                break;
-                        }
+                        var cleanType = partyType.Trim().ToUpper();
+                        var cleanName = partyName.Trim();
+
+                        // Простая проверка по тексту
+                        if (cleanType.Contains("ИСТЕЦ"))
+                            plaintiffs.Add(cleanName);
+                        else if (cleanType.Contains("ОТВЕТЧИК"))
+                            defendants.Add(cleanName);
+                        else if (cleanType.Contains("ТРЕТЬЕ"))
+                            thirdParties.Add(cleanName);
+                        else if (cleanType.Contains("ПРЕДСТАВИТЕЛЬ"))
+                            representatives.Add(cleanName);
                     }
                 }
             }
 
-            // Обновляем информацию о сторонах
-            if (plaintiff.Any())
+            // Собираем всех через точку с запятой
+            courtCase.Plaintiff = plaintiffs.Any() ? string.Join("; ", plaintiffs) : "";
+            courtCase.Defendant = defendants.Any() ? string.Join("; ", defendants) : "";
+            courtCase.ThirdParties = thirdParties.Any() ? string.Join("; ", thirdParties) : "";
+        
+            // Представителей добавляем к третьим лицам (или можно в отдельное поле если нужно)
+            if (representatives.Any())
             {
-                courtCase.Plaintiff = string.Join("; ", plaintiff);
-                logger.LogInformation("Найден истец: {Plaintiff}", courtCase.Plaintiff);
+                var allThirdParties = courtCase.ThirdParties;
+                if (!string.IsNullOrEmpty(allThirdParties))
+                    allThirdParties += "; ";
+                allThirdParties += string.Join("; ", representatives);
+                courtCase.ThirdParties = allThirdParties;
             }
 
-            if (defendant.Any())
-            {
-                courtCase.Defendant = string.Join("; ", defendant);
-                logger.LogInformation("Найден ответчик: {Defendant}", courtCase.Defendant);
-            }
-
-            // Добавляем третьих лиц в описание если они есть
-            if (thirdParties.Any())
-            {
-                courtCase.Subject += $" | Третьи лица: {string.Join("; ", thirdParties)}";
-                logger.LogInformation("Найдены третьи лица: {ThirdParties}", string.Join("; ", thirdParties));
-            }
+            logger.LogInformation("Стороны извлечены: Истцов={PlaintiffsCount}, Ответчиков={DefendantsCount}, Третьих лиц={ThirdPartiesCount}", 
+                plaintiffs.Count, defendants.Count, thirdParties.Count + representatives.Count);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Ошибка при извлечении сторон из таблицы для дела {CaseNumber}", courtCase.CaseNumber);
+            logger.LogWarning(ex, "Ошибка при извлечении сторон из таблицы");
         }
     }
-
     private async Task ExtractCaseMovementInfo(IPage page, CourtCase courtCase)
     {
         try
@@ -530,63 +828,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             logger.LogWarning(ex, "Ошибка при извлечении дат движения дела {CaseNumber}", courtCase.CaseNumber);
         }
     }
-
-    private async Task<bool> ExtractDecisionFromMainBlock(IPage page, CourtCase courtCase)
-    {
-        var decisionBlock = await page.QuerySelectorAsync(".btn-group1");
-        if (decisionBlock == null)
-        {
-            logger.LogInformation("Блок с решениями (.btn-group1) не найден для дела {CaseNumber}", courtCase.CaseNumber);
-            return false;
-        }
-
-        logger.LogInformation("Найден блок с решениями для дела {CaseNumber}", courtCase.CaseNumber);
-        
-        var decisionLinks = await decisionBlock.QuerySelectorAllAsync("a");
-        logger.LogInformation("Найдено ссылок в блоке решений: {Count}", decisionLinks.Length);
-        
-        if (decisionLinks.Length == 0)
-        {
-            logger.LogInformation("Блок .btn-group1 найден, но внутри нет ссылок для дела {CaseNumber}", courtCase.CaseNumber);
-            return false;
-        }
-
-        foreach (var link in decisionLinks)
-        {
-            try
-            {
-                var href = await link.EvaluateFunctionAsync<string>("el => el.getAttribute('href')");
-                var text = await link.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
-                var title = await link.EvaluateFunctionAsync<string>("el => el.getAttribute('title')");
-            
-                logger.LogInformation("Найдена ссылка: текст='{Text}', href='{Href}', title='{Title}'", 
-                    text, href, title);
-            
-                if (!string.IsNullOrEmpty(href) && IsValidDecisionLink(href))
-                {
-                    var fullLink = href.StartsWith("/") 
-                        ? "https://www.xn--90afdbaav0bd1afy6eub5d.xn--p1ai" + href 
-                        : href;
-                
-                    courtCase.HasDecision = true;
-                    courtCase.DecisionLink = fullLink;
-                    courtCase.DecisionType = DetermineDocumentType(text);
-                
-                    logger.LogInformation("✅ Для дела {CaseNumber} найдено {DocumentType}: {DecisionLink}", 
-                        courtCase.CaseNumber, courtCase.DecisionType, courtCase.DecisionLink);
-                
-                    return true;
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Ошибка при обработке ссылки в блоке решений для дела {CaseNumber}", 
-                    courtCase.CaseNumber);
-            }
-        }
-
-        return false;
-    }
+    
 
     private bool IsValidDecisionLink(string href)
     {
@@ -607,73 +849,12 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     
         var text = linkText.ToLower();
     
-        if (text.Contains("решение") && text.Contains("мотивированное")) return "Мотивированное решение";
-        else if (text.Contains("решение")) return "Решение";
-        else if (text.Contains("определение")) return "Определение";
-        else if (text.Contains("постановление")) return "Постановление";
-        else if (text.Contains("приказ")) return "Судебный приказ";
-        else if (text.Contains("жалоб")) return "Жалоба";
-        else if (text.Contains("заявление")) return "Заявление";
-        else if (text.Contains("скачать")) return "Документ для скачивания";
-        else return "Документ";
-    }
-
-    private async Task<bool> FindDecisionLinksAlternativeAsync(IPage page, CourtCase courtCase)
-    {
-        try
-        {
-            // Альтернативные селекторы для поиска решений
-            var alternativeSelectors = new[]
-            {
-                "a[href*='/decisions/']",
-                "a[href$='.doc']",
-                "a[href$='.docx']", 
-                "a[href$='.pdf']",
-                "a.btn-success"
-            };
-        
-            foreach (var selector in alternativeSelectors)
-            {
-                var links = await page.QuerySelectorAllAsync(selector);
-                logger.LogInformation("Альтернативный поиск: селектор {Selector} нашел {Count} ссылок", selector, links.Length);
-            
-                foreach (var link in links)
-                {
-                    try
-                    {
-                        var href = await link.EvaluateFunctionAsync<string>("el => el.getAttribute('href')");
-                        var text = await link.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
-                    
-                        if (!string.IsNullOrEmpty(href) && IsValidDecisionLink(href))
-                        {
-                            var fullLink = href.StartsWith("/") 
-                                ? "https://www.xn--90afdbaav0bd1afy6eub5d.xn--p1ai" + href 
-                                : href;
-                        
-                            var documentType = DetermineDocumentType(text);
-                        
-                            courtCase.HasDecision = true;
-                            courtCase.DecisionLink = fullLink;
-                            courtCase.DecisionType = documentType;
-                        
-                            logger.LogInformation("✅ Альтернативный поиск: для дела {CaseNumber} найдено {DocumentType}", 
-                                courtCase.CaseNumber, documentType);
-                            return true;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogDebug(ex, "Ошибка при обработке альтернативной ссылки");
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Ошибка при альтернативном поиске решений для дела {CaseNumber}", courtCase.CaseNumber);
-        }
-
-        return false;
+        if (text.Contains("мотивированное решение")) return "Мотивированное решение";
+        if (text.Contains("решение")) return "Решение";
+        if (text.Contains("определение")) return "Определение";
+        if (text.Contains("постановление")) return "Постановление";
+        if (text.Contains("приказ")) return "Судебный приказ";
+        return "Документ";
     }
 
     private static string CleanText(string text)

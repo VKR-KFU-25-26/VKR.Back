@@ -28,12 +28,13 @@ public static class Entry
 
         services.Configure<HttpClientOptions>(configuration.GetSection("HttpClientOptions"));
         
-        services.AddSingleton(resolver => 
-            resolver.GetRequiredService<IOptions<HttpClientOptions>>().Value);
+        services.AddSingleton(resolver => resolver.GetRequiredService<IOptions<HttpClientOptions>>().Value);
+        
         services.AddScoped<RegionSelectionService>();
         services.AddScoped<SearchResultsParserService>();
         services.AddScoped<DecisionExtractionService>();
         services.AddScoped<PageNavigationService>(); 
+        
         services.AddScoped<IParser, SudactParser>();
         services.AddScoped<IParser, CourtDecisionsParser>();
         

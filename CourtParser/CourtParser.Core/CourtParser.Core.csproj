@@ -10,8 +10,4 @@
       <ProjectReference Include="..\CourtParser.Models\CourtParser.Models.csproj" />
     </ItemGroup>
 
-    <ItemGroup>
-      <Folder Include="Pipelines\" />
-    </ItemGroup>
-
 </Project>

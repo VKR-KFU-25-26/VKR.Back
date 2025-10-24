@@ -1,5 +1,5 @@
-using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AngleSharp.Html.Parser;
 using CourtParser.Core.Interfaces;
 using CourtParser.Models.Entities;
@@ -40,11 +40,11 @@ public class SudactParser : IParser
             using var jsonDoc = JsonDocument.Parse(responseContent);
             var root = jsonDoc.RootElement;
 
-            string htmlContent = null;
+            string htmlContent = null!;
             
             if (root.TryGetProperty("content", out var contentElement))
             {
-                htmlContent = contentElement.GetString();
+                htmlContent = contentElement.GetString()!;
             }
             else
             {
@@ -52,7 +52,7 @@ public class SudactParser : IParser
                 {
                     if (property.Value.ValueKind == JsonValueKind.String)
                     {
-                        htmlContent = property.Value.GetString();
+                        htmlContent = property.Value.GetString()!;
                         break;
                     }
                 }
@@ -93,7 +93,7 @@ public class SudactParser : IParser
                         // Клонируем элемент, чтобы не изменять оригинальный DOM
                         var clone = justiceElement.Clone() as AngleSharp.Html.Dom.IHtmlElement;
                         // Удаляем дочерний элемент с сутью спора
-                        var additionChild = clone.QuerySelector(".addution");
+                        var additionChild = clone!.QuerySelector(".addution");
                         additionChild?.Remove();
                         
                         courtType = CleanText(clone.TextContent);
@@ -108,14 +108,7 @@ public class SudactParser : IParser
                         var additionText = CleanText(additionElement.TextContent);
                         
                         // Убираем префикс "Суть спора:" если есть
-                        if (additionText.StartsWith("Суть спора:"))
-                        {
-                            subject = additionText.Replace("Суть спора:", "").Trim();
-                        }
-                        else
-                        {
-                            subject = additionText;
-                        }
+                        subject = additionText.StartsWith("Суть спора:") ? additionText.Replace("Суть спора:", "").Trim() : additionText;
                     }
 
                     var courtCase = new CourtCase
@@ -157,14 +150,14 @@ public class SudactParser : IParser
             return string.Empty;
 
         // Ищем паттерн номера дела: "№ АXX-XXXXX/XXXX"
-        var match = System.Text.RegularExpressions.Regex.Match(title, @"№\s*([А-Я]\d+-\d+/\d+)");
+        var match = Regex.Match(title, @"№\s*([А-Я]\d+-\d+/\d+)");
         if (match.Success && match.Groups.Count > 1)
         {
             return match.Groups[1].Value;
         }
 
         // Альтернативный паттерн, если первый не сработал
-        match = System.Text.RegularExpressions.Regex.Match(title, @"дело\s*№?\s*([А-Я]\d+-\d+/\d+)");
+        match = Regex.Match(title, @"дело\s*№?\s*([А-Я]\d+-\d+/\d+)");
         if (match.Success && match.Groups.Count > 1)
         {
             return match.Groups[1].Value;
@@ -173,23 +166,18 @@ public class SudactParser : IParser
         return string.Empty;
     }
 
-    private string CleanText(string text)
+    private static string CleanText(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return string.Empty;
 
-        // Просто чистим пробелы
-        return string.Join(" ", text.Split(new[] { ' ', '\n', '\r', '\t' }, 
+        var cleaned = string.Join(" ", text.Split([' ', '\n', '\r', '\t'], 
             StringSplitOptions.RemoveEmptyEntries)).Trim();
+
+        cleaned = Regex.Replace(cleaned, @"\s+", " ");
+        cleaned = Regex.Replace(cleaned, @"\s*-\s*", "-");
+        
+        return cleaned;
     }
     
-    public Task<List<CourtCase>> ParseCasesAsync()
-    {
-        throw new NotImplementedException();
-    }
-
-    public Task<List<CourtCase>> ParseCasesAsync(int page)
-    {
-        throw new NotImplementedException();
-    }
 }

@@ -10,18 +10,36 @@ public class CourtCase
     public string CaseNumber { get; set; } = null!;
     public string CourtType { get; set; } = null!;
     public string Description { get; set; } = null!;
+    
+    /// <summary>
+    /// Ссылка на оригинальный сайт суда
+    /// </summary>
+    public string OriginalCaseLink { get; set; } = string.Empty;
 
     /// <summary>
     /// Суть спора (например: "о несостоятельности (банкротстве) физических лиц")
     /// </summary>
     public string Subject { get; set; } = null!;
 
+    /// <summary>
+    /// Есть ли решение
+    /// </summary>
     public bool HasDecision { get; set; }
+    
+    /// <summary>
+    /// Ссылка на решение
+    /// </summary>
     public string DecisionLink { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// Дата решения
+    /// </summary>
     public DateTime? DecisionDate { get; set; }
+    
+    /// <summary>
+    /// Тип решения (мотивированное, определение и т.д.)
+    /// </summary>
     public string DecisionType { get; set; } = string.Empty;
-
-    // НОВЫЕ ПОЛЯ:
     
     /// <summary>
     /// Федеральный округ
@@ -64,7 +82,7 @@ public class CourtCase
     public string CaseSubcategory { get; set; } = string.Empty;
     
     /// <summary>
-    /// Решение
+    /// Решение контент
     /// </summary>
     public string? DecisionContent { get; set; }
 }

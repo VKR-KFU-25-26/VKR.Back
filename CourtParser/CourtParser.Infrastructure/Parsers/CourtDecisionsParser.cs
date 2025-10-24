@@ -211,7 +211,7 @@ public class CourtDecisionsParser(
     {
         logger.LogInformation("Начинаем проверку решений для {Count} дел", cases.Count);
         
-        var casesToCheck = cases.Take(10).ToList();
+        var casesToCheck = cases.ToList();
         
         foreach (var courtCase in casesToCheck)
         {
@@ -297,17 +297,7 @@ public class CourtDecisionsParser(
             logger.LogError(ex, "Ошибка при парсинге дополнительных страниц");
         }
     }
-
-    public async Task<List<CourtCase>> ParseCasesAsync(int page)
-    {
-        return await FillFormAndSearchCasesAsync(null, CancellationToken.None);
-    }
     
-    public Task<List<CourtCase>> ParseCasesAsync()
-    {
-        throw new NotImplementedException();
-    }
-
     public Task<List<CourtCase>> ParseCasesAsync(string keyword, int page)
     {
         throw new NotImplementedException();
