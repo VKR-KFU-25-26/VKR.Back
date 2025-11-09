@@ -426,21 +426,21 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             return false;
     
         // Проверяем расширения файлов
-        bool hasValidExtension = href.EndsWith(".doc") || 
-                                 href.EndsWith(".docx") || 
-                                 href.EndsWith(".pdf") ||
-                                 href.EndsWith(".rtf");
+        var hasValidExtension = href.EndsWith(".doc") || 
+                                href.EndsWith(".docx") || 
+                                href.EndsWith(".pdf") ||
+                                href.EndsWith(".rtf");
 
         // Проверяем путь
-        bool hasValidPath = href.Contains("/decisions/");
+        var hasValidPath = href.Contains("/decisions/");
 
         // Проверяем текст ссылки
         var cleanText = (linkText ?? "").ToLower();
-        bool hasValidText = cleanText.Contains("решение") ||
-                            cleanText.Contains("определение") ||
-                            cleanText.Contains("постановление") ||
-                            cleanText.Contains("приказ") ||
-                            cleanText.Contains("мотивированное");
+        var hasValidText = cleanText.Contains("решение") ||
+                           cleanText.Contains("определение") ||
+                           cleanText.Contains("постановление") ||
+                           cleanText.Contains("приказ") ||
+                           cleanText.Contains("мотивированное");
 
         // Должны совпасть ВСЕ критерии
         return hasValidExtension && hasValidPath && hasValidText;
@@ -478,28 +478,27 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         if (cleanContent.Contains("р е ш е н и е") || 
             (cleanContent.Contains("решение") && cleanContent.Contains("именем российской федерации")))
             return "Решение";
-        else if (cleanContent.Contains("о п р е д е л е н и е") || 
-                 (cleanContent.Contains("определение") && cleanContent.Contains("именем российской федерации")))
+        if (cleanContent.Contains("о п р е д е л е н и е") || 
+            (cleanContent.Contains("определение") && cleanContent.Contains("именем российской федерации")))
             return "Определение";
-        else if (cleanContent.Contains("п о с т а н о в л е н и е") || 
-                 (cleanContent.Contains("постановление") && cleanContent.Contains("именем российской федерации")))
+        if (cleanContent.Contains("п о с т а н о в л е н и е") || 
+            (cleanContent.Contains("постановление") && cleanContent.Contains("именем российской федерации")))
             return "Постановление";
-        else if (cleanContent.Contains("приказ") && cleanContent.Contains("именем российской федерации"))
+        if (cleanContent.Contains("приказ") && cleanContent.Contains("именем российской федерации"))
             return "Судебный приказ";
-        else if (cleanContent.Contains("мотивированное решение"))
+        if (cleanContent.Contains("мотивированное решение"))
             return "Мотивированное решение";
         
         // Проверяем по ключевым словам в тексте
-        else if (cleanContent.Contains("решил:") || cleanContent.Contains("решила:"))
-            return "Решение";
-        else if (cleanContent.Contains("определил:") || cleanContent.Contains("определила:"))
+        if (cleanContent.Contains("решил:") || cleanContent.Contains("решила:"))
+            return "Решение"; 
+        if (cleanContent.Contains("определил:") || cleanContent.Contains("определила:"))
             return "Определение";
-        else if (cleanContent.Contains("постановил:") || cleanContent.Contains("постановила:"))
+        if (cleanContent.Contains("постановил:") || cleanContent.Contains("постановила:"))
             return "Постановление";
-        else if (cleanContent.Contains("именем российской федерации"))
+        if (cleanContent.Contains("именем российской федерации"))
             return "Судебный акт";
-        else
-            return null!; // Неизвестный тип - считаем что решения нет
+        return null!; // Неизвестный тип - считаем что решения нет
     }
    
   
@@ -535,13 +534,7 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             return null;
         }
     }
-   
-   
-   
-   
-   
-   
-
+    
     private async Task ExtractDetailedCaseInfo(IPage page, CourtCase courtCase)
     {
         try
@@ -551,17 +544,91 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             // 1. Извлекаем информацию из заголовка (номер дела, дата начала, суд)
             await ExtractHeaderInfo(page, courtCase);
 
-            // 2. Извлекаем информацию о сторонах (истец, ответчик, третьи лица)
+            // 2. Извлекаем информацию о сторонах (истец, ответчик, третьи лица, представители)
             await ExtractPartiesInfo(page, courtCase);
 
             // 3. Извлекаем информацию о движении дела
             await ExtractCaseMovementInfo(page, courtCase);
 
+            // 4. Извлекаем результат дела
+            await ExtractCaseResultInfo(page, courtCase);
+
             logger.LogInformation("✅ Детальная информация извлечена для дела {CaseNumber}", courtCase.CaseNumber);
+            logger.LogInformation("📋 Итог по сторонам: Истцы={Plaintiffs}, Ответчики={Defendants}, Третьи лица={ThirdParties}, Представители={Representatives}", 
+                courtCase.Plaintiff, courtCase.Defendant, courtCase.ThirdParties, courtCase.Representatives);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Ошибка при извлечении детальной информации для дела {CaseNumber}", courtCase.CaseNumber);
+        }
+    }
+    
+    /// <summary>
+    /// Извлекает результат дела из блока dl-horizontal
+    /// </summary>
+    private async Task ExtractCaseResultInfo(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Ищем результат дела для дела {CaseNumber}", courtCase.CaseNumber);
+
+            // Ищем блок с классом dl-horizontal
+            var dlHorizontal = await page.QuerySelectorAsync("dl.dl-horizontal");
+            if (dlHorizontal == null)
+            {
+                logger.LogInformation("Блок dl-horizontal не найден для дела {CaseNumber}", courtCase.CaseNumber);
+                courtCase.CaseResult = "Не указан";
+                return;
+            }
+
+            // Ищем все элементы dt и dd внутри блока
+            var dtElements = await dlHorizontal.QuerySelectorAllAsync("dt");
+            var ddElements = await dlHorizontal.QuerySelectorAllAsync("dd");
+
+            // Создаем словарь для пар ключ-значение
+            var caseInfo = new Dictionary<string, string>();
+
+            for (int i = 0; i < Math.Min(dtElements.Length, ddElements.Length); i++)
+            {
+                try
+                {
+                    var key = await dtElements[i].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                    var value = await ddElements[i].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+
+                    if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(value))
+                    {
+                        caseInfo[key] = value;
+                        logger.LogDebug("Найдена информация о деле: {Key} = {Value}", key, value);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "Ошибка при извлечении пары dt-dd");
+                }
+            }
+
+            // Извлекаем результат дела
+            if (caseInfo.ContainsKey("Результат"))
+            {
+                courtCase.CaseResult = caseInfo["Результат"];
+                logger.LogInformation("✅ Найден результат дела: {Result}", courtCase.CaseResult);
+            }
+            else
+            {
+                courtCase.CaseResult = "Не указан";
+                logger.LogInformation("❌ Результат дела не найден в блоке dl-horizontal");
+            }
+
+            // Дополнительно: обновляем категорию и подкатегорию если они есть
+            if (caseInfo.ContainsKey("Категория"))
+            {
+                await UpdateCategoryFromDlHorizontal(caseInfo["Категория"], courtCase);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении результата дела {CaseNumber}", courtCase.CaseNumber);
+            courtCase.CaseResult = "Ошибка при извлечении";
         }
     }
 
@@ -577,11 +644,11 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 return;
             }
 
-            var headerText = await headerBlock.EvaluateFunctionAsync<string>("el => el.textContent");
-            logger.LogInformation("Текст заголовка: {HeaderText}", headerText);
+            var headerHtml = await headerBlock.EvaluateFunctionAsync<string>("el => el.innerHTML");
+            logger.LogInformation("HTML заголовка: {HeaderHtml}", headerHtml);
 
             // Извлекаем номер дела
-            var caseNumberMatch = Regex.Match(headerText, @"Номер дела:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
+            var caseNumberMatch = Regex.Match(headerHtml, @"Номер дела:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
             if (caseNumberMatch.Success)
             {
                 var detailedCaseNumber = caseNumberMatch.Groups[1].Value.Trim();
@@ -592,20 +659,28 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                 }
             }
 
-            // Извлекаем дату начала дела
-            var startDateMatch = Regex.Match(headerText, @"Дата начала:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
+            // ИЗВЛЕКАЕМ ДАТУ НАЧАЛА ДЕЛА - НОВЫЙ КОД
+            var startDateMatch = Regex.Match(headerHtml, @"Дата начала:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
             if (startDateMatch.Success)
             {
                 var startDateStr = startDateMatch.Groups[1].Value.Trim();
                 if (DateTime.TryParse(startDateStr, out var startDate))
                 {
-                    courtCase.ReceivedDate = startDate;
-                    logger.LogInformation("Найдена дата начала дела: {StartDate}", startDate);
+                    courtCase.StartDate = startDate;
+                    logger.LogInformation("✅ Найдена дата начала дела: {StartDate}", startDate.ToString("dd.MM.yyyy"));
                 }
+                else
+                {
+                    logger.LogWarning("Не удалось распарсить дату начала: {StartDateStr}", startDateStr);
+                }
+            }
+            else
+            {
+                logger.LogInformation("Дата начала не найдена в заголовке");
             }
 
             // Извлекаем информацию о суде
-            var courtMatch = Regex.Match(headerText, @"Суд:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
+            var courtMatch = Regex.Match(headerHtml, @"Суд:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
             if (courtMatch.Success)
             {
                 var courtName = courtMatch.Groups[1].Value.Trim();
@@ -615,13 +690,80 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                     logger.LogInformation("Обновлен суд: {CourtName}", courtName);
                 }
             }
+
+            // ИЗВЛЕКАЕМ ИМЯ СУДЬИ - УЛУЧШЕННАЯ ВЕРСИЯ
+            var judgeMatch = Regex.Match(headerHtml, @"Судья:\s*<b>([^<]+)</b>", RegexOptions.IgnoreCase);
+            if (judgeMatch.Success)
+            {
+                var judgeName = judgeMatch.Groups[1].Value.Trim();
+                if (!string.IsNullOrEmpty(judgeName))
+                {
+                    courtCase.JudgeName = judgeName;
+                    logger.LogInformation("✅ Найден судья: {JudgeName}", judgeName);
+                }
+            }
+            else
+            {
+                // Альтернативный способ: ищем через XPath
+                await ExtractJudgeWithXPath(page, courtCase);
+            }
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Ошибка при извлечении информации заголовка для дела {CaseNumber}", courtCase.CaseNumber);
         }
     }
-    
+    /// <summary>
+    /// Альтернативный метод извлечения судьи через XPath
+    /// </summary>
+    private async Task ExtractJudgeWithXPath(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Пытаемся извлечь судью через XPath...");
+
+            // Ищем элемент с текстом "Судья:" и следующий за ним элемент с тегом b
+            var judgeXPath = "//div[contains(@class, 'text-right')]//p[contains(text(), 'Судья:')]/b";
+            var judgeElements = await page.XPathAsync(judgeXPath);
+
+            if (judgeElements.Any())
+            {
+                var judgeElement = judgeElements.First();
+                var judgeName = await judgeElement.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+            
+                if (!string.IsNullOrEmpty(judgeName))
+                {
+                    courtCase.JudgeName = judgeName;
+                    logger.LogInformation("✅ Найден судья через XPath: {JudgeName}", judgeName);
+                    return;
+                }
+            }
+
+            // Другой вариант XPath
+            var alternativeXPath = "//div[contains(@class, 'col-md-8') and contains(@class, 'text-right')]//b[preceding-sibling::text()[contains(., 'Судья:')]]";
+            var altJudgeElements = await page.XPathAsync(alternativeXPath);
+
+            if (altJudgeElements.Any())
+            {
+                var judgeElement = altJudgeElements.First();
+                var judgeName = await judgeElement.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+            
+                if (!string.IsNullOrEmpty(judgeName))
+                {
+                    courtCase.JudgeName = judgeName;
+                    logger.LogInformation("✅ Найден судья через альтернативный XPath: {JudgeName}", judgeName);
+                    return;
+                }
+            }
+
+            logger.LogInformation("❌ Судья не найден через XPath");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении судьи через XPath");
+        }
+    }
+
     /// <summary>
     /// Извлекает ссылку на оригинальный сайт суда
     /// </summary>
@@ -673,18 +815,50 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
     {
         try
         {
-            // Ищем ВСЕ таблицы с классом table-condensed
+            logger.LogInformation("Начинаем извлечение информации о сторонах...");
+
+            // Стратегия 1: Обычный поиск по таблицам
             var tables = await page.QuerySelectorAllAsync("table.table-condensed");
-        
+            bool foundWithFirstMethod = false;
+
             foreach (var table in tables)
             {
-                // Проверяем есть ли в таблице нужные заголовки
-                var tableHtml = await table.EvaluateFunctionAsync<string>("el => el.outerHTML");
-                if (tableHtml.Contains("ИСТЕЦ") || tableHtml.Contains("ОТВЕТЧИК") || tableHtml.Contains("ТРЕТЬЕ") || tableHtml.Contains("ПРЕДСТАВИТЕЛЬ"))
+                var tableText = await table.EvaluateFunctionAsync<string>("el => el.textContent");
+            
+                if (tableText.Contains("Стороны по делу") || 
+                    tableText.Contains("ИСТЕЦ") || 
+                    tableText.Contains("ОТВЕТЧИК"))
                 {
+                    logger.LogInformation("Найдена таблица сторон, используем первый метод");
                     await ExtractPartiesFromTable(table, courtCase);
-                    return; // Нашли - выходим
+                    foundWithFirstMethod = true;
+                    break;
                 }
+            }
+
+            // Стратегия 2: Если первый метод не нашел представителей, используем XPath
+            if (foundWithFirstMethod && string.IsNullOrEmpty(courtCase.Representatives))
+            {
+                logger.LogInformation("Первый метод не нашел представителей, пробуем XPath...");
+                await ExtractPartiesWithXPath(page, courtCase);
+            }
+            else if (!foundWithFirstMethod)
+            {
+                // Если вообще не нашли таблицу, пробуем XPath
+                logger.LogInformation("Таблица сторон не найдена, используем XPath...");
+                await ExtractPartiesWithXPath(page, courtCase);
+            }
+
+            // Финальная проверка
+            if (string.IsNullOrEmpty(courtCase.Plaintiff) && 
+                string.IsNullOrEmpty(courtCase.Defendant) &&
+                string.IsNullOrEmpty(courtCase.Representatives))
+            {
+                logger.LogWarning("❌ Не удалось извлечь ни одной стороны дела");
+            }
+            else
+            {
+                logger.LogInformation("✅ Извлечение сторон завершено успешно");
             }
         }
         catch (Exception ex)
@@ -692,7 +866,88 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             logger.LogWarning(ex, "Ошибка при поиске таблицы сторон");
         }
     }
+    
+    /// <summary>
+    /// Альтернативный метод извлечения сторон с использованием XPath (более надежный)
+    /// </summary>
+    private async Task ExtractPartiesWithXPath(IPage page, CourtCase courtCase)
+    {
+        try
+        {
+            logger.LogInformation("Используем XPath для извлечения сторон...");
 
+            // Ищем все строки с данными сторон (игнорируем заголовки)
+            var partyRows = await page.XPathAsync("//table[contains(@class, 'table-condensed')]//tr[td[2][@itemprop='contributor']]");
+    
+            logger.LogInformation("Найдено строк с участниками: {Count}", partyRows.Length);
+
+            var plaintiffs = new List<string>();
+            var defendants = new List<string>();
+            var thirdParties = new List<string>();
+            var representatives = new List<string>();
+
+            foreach (var row in partyRows)
+            {
+                // Получаем тип участника из первой ячейки
+                var typeCell = await row.QuerySelectorAsync("td:nth-child(1)");
+                var nameCell = await row.QuerySelectorAsync("td:nth-child(2)");
+
+                if (typeCell != null && nameCell != null)
+                {
+                    var partyType = await typeCell.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                    var partyName = await nameCell.EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+
+                    if (!string.IsNullOrEmpty(partyType) && !string.IsNullOrEmpty(partyName))
+                    {
+                        var cleanType = partyType.ToUpper();
+                        var cleanName = partyName;
+
+                        logger.LogDebug("XPath: Тип='{Type}', Имя='{Name}'", cleanType, cleanName);
+
+                        switch (cleanType)
+                        {
+                            case "ИСТЕЦ":
+                                plaintiffs.Add(cleanName);
+                                break;
+                            case "ОТВЕТЧИК":
+                                defendants.Add(cleanName);
+                                break;
+                            case "ТРЕТЬЕ ЛИЦО":
+                                thirdParties.Add(cleanName);
+                                break;
+                            case "ПРЕДСТАВИТЕЛЬ":
+                                representatives.Add(cleanName);
+                                break;
+                            default:
+                                // Дополнительная проверка для частичных совпадений
+                                if (cleanType.Contains("ПРЕДСТАВИТЕЛЬ"))
+                                {
+                                    representatives.Add(cleanName);
+                                    logger.LogDebug("✅ Найден представитель (частичное совпадение): {Name}", cleanName);
+                                }
+                                else
+                                {
+                                    logger.LogWarning("XPath: Неизвестный тип '{Type}' для '{Name}'", cleanType, cleanName);
+                                }
+                                break;
+                        }
+                    }
+                }
+            }
+
+            // Записываем результаты
+            courtCase.Plaintiff = string.Join("; ", plaintiffs);
+            courtCase.Defendant = string.Join("; ", defendants);
+            courtCase.ThirdParties = string.Join("; ", thirdParties);
+            courtCase.Representatives = string.Join("; ", representatives);
+
+            logger.LogInformation("✅ XPath извлечение завершено");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при XPath извлечении сторон");
+        }
+    }
     private async Task ExtractPartiesFromTable(IElementHandle table, CourtCase courtCase)
     {
         try
@@ -702,6 +957,8 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             var defendants = new List<string>();
             var thirdParties = new List<string>();
             var representatives = new List<string>();
+
+            logger.LogInformation("Обрабатываем таблицу сторон: найдено {RowCount} строк", rows.Length);
 
             foreach (var row in rows)
             {
@@ -716,15 +973,47 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
                         var cleanType = partyType.Trim().ToUpper();
                         var cleanName = partyName.Trim();
 
-                        // Простая проверка по тексту
-                        if (cleanType.Contains("ИСТЕЦ"))
+                        logger.LogDebug("Обрабатываем строку: Тип='{Type}', Имя='{Name}'", cleanType, cleanName);
+
+                        // Улучшенная проверка по тексту - точное соответствие
+                        if (cleanType == "ИСТЕЦ" || cleanType.StartsWith("ИСТЕЦ"))
+                        {
                             plaintiffs.Add(cleanName);
-                        else if (cleanType.Contains("ОТВЕТЧИК"))
+                            logger.LogDebug("✅ Найден истец: {Name}", cleanName);
+                        }
+                        else if (cleanType == "ОТВЕТЧИК" || cleanType.StartsWith("ОТВЕТЧИК"))
+                        {
                             defendants.Add(cleanName);
-                        else if (cleanType.Contains("ТРЕТЬЕ"))
+                            logger.LogDebug("✅ Найден ответчик: {Name}", cleanName);
+                        }
+                        else if (cleanType.Contains("ТРЕТЬЕ ЛИЦО") || cleanType == "ТРЕТЬЕ ЛИЦО" || cleanType.StartsWith("ТРЕТЬЕ"))
+                        {
                             thirdParties.Add(cleanName);
-                        else if (cleanType.Contains("ПРЕДСТАВИТЕЛЬ"))
+                            logger.LogDebug("✅ Найдено третье лицо: {Name}", cleanName);
+                        }
+                        else if (cleanType == "ПРЕДСТАВИТЕЛЬ" || cleanType.StartsWith("ПРЕДСТАВИТЕЛЬ"))
+                        {
                             representatives.Add(cleanName);
+                            logger.LogDebug("✅ Найден представитель: {Name}", cleanName);
+                        }
+                        else
+                        {
+                            logger.LogWarning("❌ Неизвестный тип стороны: '{Type}' - '{Name}'", cleanType, cleanName);
+                        }
+                    }
+                    else
+                    {
+                        logger.LogDebug("Пустые данные в строке: Type='{Type}', Name='{Name}'", 
+                            partyType, partyName);
+                    }
+                }
+                else
+                {
+                    // Это может быть заголовочная строка
+                    var rowText = await row.EvaluateFunctionAsync<string>("el => el.textContent");
+                    if (!string.IsNullOrEmpty(rowText) && rowText.Contains("Стороны по делу"))
+                    {
+                        logger.LogDebug("Пропускаем заголовочную строку: {Text}", rowText.Trim());
                     }
                 }
             }
@@ -733,41 +1022,46 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
             courtCase.Plaintiff = plaintiffs.Any() ? string.Join("; ", plaintiffs) : "";
             courtCase.Defendant = defendants.Any() ? string.Join("; ", defendants) : "";
             courtCase.ThirdParties = thirdParties.Any() ? string.Join("; ", thirdParties) : "";
-        
-            // Представителей добавляем к третьим лицам (или можно в отдельное поле если нужно)
-            if (representatives.Any())
-            {
-                var allThirdParties = courtCase.ThirdParties;
-                if (!string.IsNullOrEmpty(allThirdParties))
-                    allThirdParties += "; ";
-                allThirdParties += string.Join("; ", representatives);
-                courtCase.ThirdParties = allThirdParties;
-            }
+            courtCase.Representatives = representatives.Any() ? string.Join("; ", representatives) : "";
 
-            logger.LogInformation("Стороны извлечены: Истцов={PlaintiffsCount}, Ответчиков={DefendantsCount}, Третьих лиц={ThirdPartiesCount}", 
-                plaintiffs.Count, defendants.Count, thirdParties.Count + representatives.Count);
+            logger.LogInformation("✅ Стороны извлечены: Истцов={PlaintiffsCount}, Ответчиков={DefendantsCount}, Третьих лиц={ThirdPartiesCount}, Представителей={RepresentativesCount}", 
+                plaintiffs.Count, defendants.Count, thirdParties.Count, representatives.Count);
+    
+            // Детальный лог результатов
+            if (plaintiffs.Any()) logger.LogInformation("📋 Истцы: {Plaintiffs}", string.Join("; ", plaintiffs));
+            if (defendants.Any()) logger.LogInformation("📋 Ответчики: {Defendants}", string.Join("; ", defendants));
+            if (thirdParties.Any()) logger.LogInformation("📋 Третьи лица: {ThirdParties}", string.Join("; ", thirdParties));
+            if (representatives.Any()) logger.LogInformation("📋 Представители: {Representatives}", string.Join("; ", representatives));
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Ошибка при извлечении сторон из таблицы");
         }
     }
+    /// <summary>
+    /// Извлекает информацию о движении дела из таблицы
+    /// </summary>
     private async Task ExtractCaseMovementInfo(IPage page, CourtCase courtCase)
     {
         try
         {
+            logger.LogInformation("Ищем таблицу движения дела для дела {CaseNumber}", courtCase.CaseNumber);
+
             // Ищем таблицу с движением дела
             var movementTables = await page.QuerySelectorAllAsync("table.table-condensed");
-            
+        
             foreach (var table in movementTables)
             {
                 var tableText = await table.EvaluateFunctionAsync<string>("el => el.textContent");
                 if (tableText.Contains("Движение дела") || tableText.Contains("Наименование события"))
                 {
-                    await ExtractMovementDatesFromTable(table, courtCase);
-                    break;
+                    logger.LogInformation("✅ Найдена таблица движения дела");
+                    await ExtractMovementDetailsFromTable(table, courtCase);
+                    return;
                 }
             }
+
+            logger.LogInformation("❌ Таблица движения дела не найдена");
         }
         catch (Exception ex)
         {
@@ -775,88 +1069,157 @@ public class DecisionExtractionService(ILogger<DecisionExtractionService> logger
         }
     }
 
-    private async Task ExtractMovementDatesFromTable(IElementHandle table, CourtCase courtCase)
+    /// <summary>
+    /// Извлекает детальную информацию о движении дела из таблицы
+    /// </summary>
+    private async Task ExtractMovementDetailsFromTable(IElementHandle table, CourtCase courtCase)
     {
         try
         {
             var rows = await table.QuerySelectorAllAsync("tr");
-            var events = new List<string>();
+            var movements = new List<CourtCaseMovement>();
+
+            logger.LogInformation("Обрабатываем таблицу движения дела: найдено {RowCount} строк", rows.Length);
 
             foreach (var row in rows)
             {
-                var cells = await row.QuerySelectorAllAsync("td");
-                if (cells.Length >= 4) // Наименование, Результат, Основания, Дата
+                try
                 {
-                    var eventName = await cells[0].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
-                    var eventDate = await cells[3].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                    // Пропускаем заголовочные строки
+                    var isHeader = await row.EvaluateFunctionAsync<bool>("el => el.classList.contains('active')");
+                    if (isHeader) continue;
 
-                    if (!string.IsNullOrEmpty(eventName) && !string.IsNullOrEmpty(eventDate))
+                    var cells = await row.QuerySelectorAllAsync("td");
+                
+                    // Должно быть 4 ячейки: Наименование, Результат, Основания, Дата
+                    if (cells.Length >= 4)
                     {
-                        events.Add($"{eventName}: {eventDate}");
+                        var eventName = await cells[0].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                        var eventResult = await cells[1].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                        var basis = await cells[2].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
+                        var eventDateStr = await cells[3].EvaluateFunctionAsync<string>("el => el.textContent?.trim()");
 
-                        // Ищем дату решения
-                        if (eventName.Contains("Решение") && eventName.Contains("вынесено"))
+                        // Парсим дату
+                        DateTime? eventDate = null;
+                        if (!string.IsNullOrEmpty(eventDateStr) && DateTime.TryParse(eventDateStr, out var parsedDate))
                         {
-                            if (DateTime.TryParse(eventDate, out var decisionDate))
-                            {
-                                courtCase.DecisionDate = decisionDate;
-                                logger.LogInformation("Найдена дата решения из движения дела: {DecisionDate}", decisionDate);
-                            }
+                            eventDate = parsedDate;
                         }
 
-                        // Ищем дату регистрации (поступления)
-                        if (eventName.Contains("Регистрация") && eventName.Contains("иска"))
+                        // Создаем объект движения дела
+                        var movement = new CourtCaseMovement
                         {
-                            if (DateTime.TryParse(eventDate, out var receivedDate))
-                            {
-                                courtCase.ReceivedDate = receivedDate;
-                                logger.LogInformation("Найдена дата регистрации из движения дела: {ReceivedDate}", receivedDate);
-                            }
+                            EventName = eventName ?? "",
+                            EventResult = eventResult ?? "",
+                            Basis = basis ?? "",
+                            EventDate = eventDate
+                        };
+
+                        // Добавляем только если есть хотя бы название события
+                        if (!string.IsNullOrEmpty(eventName))
+                        {
+                            movements.Add(movement);
+                        
+                            logger.LogDebug("Добавлено событие: {EventName} - {EventDate}", 
+                                eventName, eventDate?.ToString("dd.MM.yyyy") ?? "нет даты");
                         }
                     }
                 }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "Ошибка при обработке строки движения дела");
+                }
             }
 
-            // Обновляем описание с информацией о движении дела
-            if (events.Any())
+            // Сохраняем движения дела
+            courtCase.CaseMovements = movements;
+        
+            // Также обновляем описание с ключевыми событиями
+            UpdateDescriptionWithKeyEvents(courtCase);
+        
+            logger.LogInformation("✅ Извлечено событий движения дела: {Count}", movements.Count);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при извлечении деталей движения дела {CaseNumber}", courtCase.CaseNumber);
+        }
+    }
+
+    /// <summary>
+    /// Обновляет описание дела с ключевыми событиями
+    /// </summary>
+    private void UpdateDescriptionWithKeyEvents(CourtCase courtCase)
+    {
+        try
+        {
+            var keyEvents = new List<string>();
+        
+            // Берем первые 3-5 ключевых событий для описания
+            var importantEvents = courtCase.CaseMovements
+                .Where(m => !string.IsNullOrEmpty(m.EventName))
+                .Take(5)
+                .ToList();
+
+            foreach (var movement in importantEvents)
             {
-                courtCase.Description = string.Join("; ", events.Take(3)); // Берем первые 3 события
+                var eventText = movement.EventName;
+                if (movement.EventDate.HasValue)
+                {
+                    eventText += $": {movement.EventDate.Value:dd.MM.yyyy}";
+                }
+                if (!string.IsNullOrEmpty(movement.EventResult))
+                {
+                    eventText += $" ({movement.EventResult})";
+                }
+                keyEvents.Add(eventText);
+            }
+
+            if (keyEvents.Any())
+            {
+                courtCase.Description = string.Join("; ", keyEvents);
+                logger.LogInformation("✅ Обновлено описание с ключевыми событиями: {Description}", courtCase.Description);
             }
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Ошибка при извлечении дат движения дела {CaseNumber}", courtCase.CaseNumber);
+            logger.LogWarning(ex, "Ошибка при обновлении описания с ключевыми событиями");
+        }
+    }
+
+    
+    /// <summary>
+    /// Обновляет категорию и подкатегорию из блока Категория
+    /// </summary>
+    private async Task UpdateCategoryFromDlHorizontal(string categoryText, CourtCase courtCase)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(categoryText))
+                return;
+
+            // Разделяем категорию и подкатегорию по символу "/"
+            var parts = categoryText.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => part.Trim())
+                .ToArray();
+
+            if (parts.Length >= 1)
+            {
+                courtCase.CaseCategory = parts[0];
+                logger.LogInformation("Обновлена категория дела: {Category}", parts[0]);
+            }
+
+            if (parts.Length >= 2)
+            {
+                courtCase.CaseSubcategory = parts[1];
+                logger.LogInformation("Обновлена подкатегория дела: {Subcategory}", parts[1]);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Ошибка при обновлении категории из dl-horizontal");
         }
     }
     
-
-    private bool IsValidDecisionLink(string href)
-    {
-        if (string.IsNullOrEmpty(href)) 
-            return false;
-    
-        // Проверяем, что ссылка ведет на документ решения
-        return href.Contains("/decisions/") || 
-               href.EndsWith(".doc") || 
-               href.EndsWith(".docx") || 
-               href.EndsWith(".pdf");
-    }
-
-    private string DetermineDocumentType(string linkText)
-    {
-        if (string.IsNullOrEmpty(linkText)) 
-            return "Документ";
-    
-        var text = linkText.ToLower();
-    
-        if (text.Contains("мотивированное решение")) return "Мотивированное решение";
-        if (text.Contains("решение")) return "Решение";
-        if (text.Contains("определение")) return "Определение";
-        if (text.Contains("постановление")) return "Постановление";
-        if (text.Contains("приказ")) return "Судебный приказ";
-        return "Документ";
-    }
-
     private static string CleanText(string text)
     {
         if (string.IsNullOrWhiteSpace(text))

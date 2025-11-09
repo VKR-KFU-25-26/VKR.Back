@@ -125,6 +125,50 @@ public class KafkaCourtMessageProducer : IKafkaProducer
     {
         _logger.LogError("Kafka producer error: {Reason} (Code: {Code})", error.Reason, error.Code);
     }
+    
+    public async Task ProduceSingleMockMessageAsync(string topic)
+    {
+        var random = new Random();
+        
+        var mockMessage = new CourtCaseMessage
+        {
+            Title = "Тестовое дело - ТЕСТ-001/2024",
+            Link = "https://example.com/test/1",
+            CaseNumber = $"ТЕСТ-{random.Next(1,9999)}",
+            CourtType = "Тестовый суд",
+            Description = "Тестовое дело для проверки работы Kafka",
+            OriginalCaseLink = "https://test.sudrf.ru/test/1",
+            Subject = "тестовое дело",
+            HasDecision = true,
+            DecisionLink = "https://example.com/test/decision/1",
+            DecisionDate = DateTime.UtcNow,
+            DecisionType = "Тестовое решение",
+            FederalDistrict = "Тестовый федеральный округ",
+            Region = "Тестовый регион",
+            Plaintiff = "Тестовый истец",
+            Defendant = "Тестовый ответчик",
+            ThirdParties = "Тестовые третьи лица",
+            Representatives = "ТЕстовые представители",
+            CaseResult = "Типо результат",
+            ReceivedDate = DateTime.UtcNow.AddDays(-1),
+            CaseCategory = "Тестовая категория",
+            CaseSubcategory = "Тестовая подкатегория",
+            DecisionContent = "Это тестовое решение для проверки работы системы",
+            JudgeName = "Тестовый судья",
+            Timestamp = DateTime.UtcNow
+        };
+
+        try
+        {
+            await ProduceAsync(topic, mockMessage);
+            _logger.LogInformation("✅ Успешно отправлено тестовое сообщение в топик {Topic}", topic);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Ошибка отправки тестового сообщения в топик {Topic}", topic);
+            throw;
+        }
+    }
 
     public void Dispose()
     {

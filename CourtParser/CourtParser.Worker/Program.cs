@@ -3,6 +3,7 @@ using CourtParser.Core.Interfaces;
 using CourtParser.Infrastructure;
 using CourtParser.Infrastructure.Hangfire.Initializer;
 using CourtParser.Infrastructure.Hangfire.Services;
+using CourtParser.Worker;
 using Hangfire;
 using Hangfire.Dashboard.BasicAuthorization;
 using Hangfire.PostgreSql;
@@ -13,15 +14,17 @@ Console.InputEncoding = Encoding.UTF8;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddHostedService<Mock>();
 // Hangfire + PostgreSQL
 builder.Services.AddHangfire(config =>
 {
+#pragma warning disable CS0618 // Type or member is obsolete
     config.UsePostgreSqlStorage(builder.Configuration.GetConnectionString("DefaultConnection"));
+#pragma warning restore CS0618 // Type or member is obsolete
 });
 builder.Services.AddHangfireServer();
 
 builder.Services.AddScoped<IRegionJobService, RegionJobService>();
-//builder.Services.AddHostedService<Worker>();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddControllers();
 
@@ -29,6 +32,7 @@ var app = builder.Build();
 
 app.UseRouting();
 
+#pragma warning disable ASP0014
 app.UseEndpoints(endpoints =>
 {
     // Hangfire Dashboard с базовой авторизацией
@@ -53,11 +57,14 @@ app.UseEndpoints(endpoints =>
         ]
     });
 });
+#pragma warning restore ASP0014
 
 using (app.Services.CreateScope())
 {
     Console.WriteLine("📅 Регистрация Hangfire задач...");
+#pragma warning disable CS0618 // Type or member is obsolete
     HangfireRegionInitializer.ScheduleRegionJobs();
+#pragma warning restore CS0618 // Type or member is obsolete
 }
 
 app.Run("http://0.0.0.0:5000");

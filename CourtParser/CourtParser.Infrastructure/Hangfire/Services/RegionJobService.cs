@@ -95,12 +95,17 @@ public class RegionJobService : IRegionJobService
             Region = model.Region,
             Plaintiff = model.Plaintiff,
             Defendant = model.Defendant,
+            ThirdParties = model.ThirdParties,
+            Representatives = model.Representatives,
             ReceivedDate = model.ReceivedDate,
             CaseCategory = model.CaseCategory,
             CaseSubcategory = model.CaseSubcategory,
             DecisionContent = model.DecisionContent,
-            ThirdParties = model.ThirdParties,
-            OriginalCaseLink = model.OriginalCaseLink
+            OriginalCaseLink = model.OriginalCaseLink,
+            JudgeName = model.JudgeName,
+            CaseResult = model.CaseResult,
+            StartDate = model.StartDate,
+            CaseMovements = model.CaseMovements
         };
     }
 

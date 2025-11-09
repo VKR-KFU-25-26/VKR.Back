@@ -22,7 +22,7 @@ public class SearchResultsParserService(ILogger<SearchResultsParserService> logg
     
   public async Task<List<CourtCase>> ParseSearchResultsWithRetry(IPage page, int maxRetries = 3)
     {
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
         {
             try
             {

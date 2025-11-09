@@ -9,4 +9,5 @@ public interface IKafkaProducer
 {
     Task ProduceAsync(string topic, CourtCaseMessage message);
     Task ProduceBatchAsync(string topic, List<CourtCaseMessage> messages);
+    Task ProduceSingleMockMessageAsync(string topic);
 }

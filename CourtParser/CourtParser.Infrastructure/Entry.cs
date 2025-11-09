@@ -33,7 +33,6 @@ public static class Entry
         services.AddScoped<RegionSelectionService>();
         services.AddScoped<SearchResultsParserService>();
         services.AddScoped<DecisionExtractionService>();
-        services.AddScoped<PageNavigationService>(); 
         
         services.AddScoped<IParser, SudactParser>();
         services.AddScoped<IParser, CourtDecisionsParser>();

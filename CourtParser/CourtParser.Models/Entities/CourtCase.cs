@@ -5,10 +5,39 @@ namespace CourtParser.Models.Entities;
 /// </summary>
 public class CourtCase
 {
+    /// <summary>
+    /// Первичная информация
+    /// </summary>
     public string Title { get; set; } = null!;
+    
+    /// <summary>
+    /// Ссылка из источника
+    /// </summary>
     public string Link { get; set; } = null!;
+
+    /// <summary>
+    /// Дата начало 
+    /// </summary>
+    public DateTime StartDate { get; set; }
+    
+    /// <summary>
+    /// Движение дела (список событий)
+    /// </summary>
+    public List<CourtCaseMovement> CaseMovements { get; set; } = [];
+    
+    /// <summary>
+    /// Номер дела
+    /// </summary>
     public string CaseNumber { get; set; } = null!;
+    
+    /// <summary>
+    /// Тип дела
+    /// </summary>
     public string CourtType { get; set; } = null!;
+    
+    /// <summary>
+    /// Описание
+    /// </summary>
     public string Description { get; set; } = null!;
     
     /// <summary>
@@ -67,6 +96,11 @@ public class CourtCase
     public string ThirdParties { get; set; } = string.Empty;
     
     /// <summary>
+    /// Представители (если есть)
+    /// </summary>
+    public string? Representatives { get; set; } = string.Empty;
+    
+    /// <summary>
     /// Дата поступления дела
     /// </summary>
     public DateTime? ReceivedDate { get; set; }
@@ -77,6 +111,11 @@ public class CourtCase
     public string CaseCategory { get; set; } = string.Empty;
     
     /// <summary>
+    /// Результат дела (например: "Заявление ВОЗВРАЩЕНО заявителю")
+    /// </summary>
+    public string CaseResult { get; set; } = string.Empty;
+    
+    /// <summary>
     /// Подкатегория дела
     /// </summary>
     public string CaseSubcategory { get; set; } = string.Empty;
@@ -85,4 +124,9 @@ public class CourtCase
     /// Решение контент
     /// </summary>
     public string? DecisionContent { get; set; }
+    
+    /// <summary>
+    /// Судья
+    /// </summary>
+    public string? JudgeName { get; set; } = string.Empty;  
 }
