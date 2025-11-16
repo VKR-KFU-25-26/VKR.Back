@@ -14,17 +14,17 @@ public static class HangfireRegionInitializer
         foreach (var region in allRegions)
         {
             
-            var jobId = $"region_job_{region.Replace(" ", "_")}";
-            
-            BackgroundJob.Enqueue<IRegionJobService>(
-                x => x.ProcessRegionAsync(region)
-            );
-            
-            RecurringJob.AddOrUpdate<IRegionJobService>(
-                jobId,
-                x => x.ProcessRegionAsync(region),
-                Cron.Hourly(59)
-            );
+            // var jobId = $"region_job_{region.Replace(" ", "_")}";
+            //
+            // BackgroundJob.Enqueue<IRegionJobService>(
+            //     x => x.ProcessRegionAsync(region)
+            // );
+            //
+            // RecurringJob.AddOrUpdate<IRegionJobService>(
+            //     jobId,
+            //     x => x.ProcessRegionAsync(region),
+            //     Cron.Hourly(59)
+            // );
         }
     }
 }

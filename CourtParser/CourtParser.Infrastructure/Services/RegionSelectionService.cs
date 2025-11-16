@@ -135,7 +135,7 @@ public class RegionSelectionService(ILogger<RegionSelectionService> logger)
             var district = GetFederalDistrictForRegion(region);
             if (!result.ContainsKey(district))
             {
-                result[district] = new List<string>();
+                result[district] = [];
             }
             result[district].Add(region);
         }

@@ -4,6 +4,7 @@ using CourtDecisions.Kafka.Abstraction;
 using CourtDecisions.Kafka.KafkaHelpers;
 using CourtDecisions.Kafka.Messages;
 using CourtDecisions.Kafka.Options;
+using CourtParser.Models.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -155,7 +156,33 @@ public class KafkaCourtMessageProducer : IKafkaProducer
             CaseSubcategory = "Тестовая подкатегория",
             DecisionContent = "Это тестовое решение для проверки работы системы",
             JudgeName = "Тестовый судья",
-            Timestamp = DateTime.UtcNow
+            Timestamp = DateTime.UtcNow,
+            CaseMovements =
+            [
+                new()
+                {
+                    EventName = "Регистрация иска в суде",
+                    EventResult = "Иск принят к производству",
+                    Basis = $"ст. {random.Next(1,9999)} ГПК РФ",
+                    EventDate = DateTime.UtcNow.AddDays(-12)
+                },
+
+                new()
+                {
+                    EventName = "Передача материалов судье",
+                    EventResult = "Материалы переданы судье Тестову А.А.",
+                    Basis = "",
+                    EventDate = DateTime.UtcNow.AddDays(-random.Next(1,3))
+                },
+                
+                new()
+                {
+                    EventName = "Вынесение решения",
+                    EventResult = "Иск удовлетворён",
+                    Basis = "Решение суда от " + DateTime.UtcNow.AddDays(-3).ToShortDateString(),
+                    EventDate = DateTime.UtcNow.AddDays(-3)
+                }
+            ]
         };
 
         try
